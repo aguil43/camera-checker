@@ -1,0 +1,54 @@
+# ==========================================
+# Byte-compiled / optimized / DLL files
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ==========================================
+# C environments and Virtual Environments
+# ==========================================
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ==========================================
+# Environment Variables & Secrets
+# ==========================================
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ==========================================
+# Data, Databases, Logs & Screenshots
+# ==========================================
+data/
+data/camera_checker.db
+data/screenshots/
+data/logs/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# ==========================================
+# Media & Temporary Recordings
+# ==========================================
+*.mp4
+*.mkv
+*.webm
+*.avi
+*.mov
+
+# ==========================================
+# IDE & Editor Configs
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
