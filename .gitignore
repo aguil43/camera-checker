@@ -4,6 +4,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
 
 # ==========================================
 # C environments and Virtual Environments
@@ -34,15 +38,17 @@ data/logs/
 *.sqlite
 *.sqlite3
 *.log
+*.png
 
 # ==========================================
-# Media & Temporary Recordings
+# Media & Temporary Recordings / Scratch
 # ==========================================
 *.mp4
 *.mkv
 *.webm
 *.avi
 *.mov
+scratch/
 
 # ==========================================
 # IDE & Editor Configs
