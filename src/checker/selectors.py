@@ -12,43 +12,50 @@ VIVOTEK_QUASAR_SELECTORS = {
     
     # Menú lateral
     "menu_system": (
-        "xpath=//div[contains(@class, 'q-expansion-item')][.//div[normalize-space()='System']] "
-        "| //div[contains(@class, 'q-item')][.//div[normalize-space()='System']] "
-        "| //span[normalize-space()='System'] "
-        "| //div[normalize-space()='System']"
+        "xpath=//div[contains(@class, 'q-expansion-item')][.//*[normalize-space()='System' or normalize-space()='Sistema']] "
+        "| //div[contains(@class, 'q-item')][.//*[normalize-space()='System' or normalize-space()='Sistema']] "
+        "| //*[normalize-space()='System'] "
+        "| //*[normalize-space()='Sistema']"
     ),
     "menu_file": (
         "xpath=//a[contains(@href, 'file_general')] "
-        "| //div[contains(@class, 'q-item')][.//div[normalize-space()='File']] "
-        "| //span[normalize-space()='File'] "
-        "| //div[normalize-space()='File']"
+        "| //div[contains(@class, 'q-item')][.//*[normalize-space()='File' or normalize-space()='Archivo' or normalize-space()='Archivos']] "
+        "| //*[normalize-space()='File'] "
+        "| //*[normalize-space()='Archivos']"
     ),
     
     # Dropdown Time frame
     "time_frame_dropdown": (
-        "xpath=//div[contains(@class, 'q-select') or contains(@class, 'dropdown') or contains(@class, 'select')]"
-        "[.//span[contains(text(), 'Time frame') or contains(text(), 'Last') or contains(text(), 'Custom') or contains(text(), '202')]] "
-        "| //*[contains(text(), 'Time frame')]/ancestor::div[contains(@class, 'q-select') or contains(@class, 'q-field')] "
-        "| //div[contains(@class, 'q-field')][.//span[contains(text(), 'Last 24 hours') or contains(text(), 'Custom') or contains(text(), 'Time frame')]]"
+        "xpath=//div[contains(@class, 'q-select') or contains(@class, 'q-field')]"
+        "[.//*[contains(text(), 'Time frame') or contains(text(), 'Last') or contains(text(), 'Custom') or contains(text(), '202') or contains(text(), 'hour')]] "
+        "| //*[contains(text(), 'Time frame')]/ancestor::div[contains(@class, 'q-field') or contains(@class, 'q-select')][1] "
+        "| //div[contains(@class, 'q-select')]"
     ),
     "option_custom_interval": (
-        "xpath=//div[contains(@class, 'q-item')][.//div[contains(text(), 'Custom time interval')]] "
-        "| //li[contains(text(), 'Custom time interval')] "
-        "| //span[contains(text(), 'Custom time interval')] "
+        "xpath=//div[contains(@class, 'q-item') or contains(@class, 'q-menu') or contains(@class, 'q-list')]//*[contains(text(), 'Custom') or contains(text(), 'custom') or contains(text(), 'Personalizado')] "
+        "| //*[contains(text(), 'Custom time interval')] "
         "| //div[normalize-space()='Custom time interval']"
     ),
     
     # Modal Date & Time
-    "modal_date_time": "xpath=//div[contains(@class, 'q-dialog') or contains(@class, 'modal')][.//div[contains(text(), 'Date & Time') or contains(., 'Start time')]]",
+    "modal_date_time": (
+        "xpath=//div[contains(@class, 'q-dialog') or contains(@class, 'modal') or contains(@class, 'q-card')]"
+        "[.//*[contains(text(), 'Date & Time') or contains(., 'Start time') or contains(., 'End time')]] "
+        "| //div[contains(@class, 'q-dialog')]"
+    ),
     "modal_inputs": "xpath=//div[contains(@class, 'q-dialog') or contains(@class, 'modal')]//input",
     "modal_btn_save": (
-        "xpath=//div[contains(@class, 'q-dialog') or contains(@class, 'modal')]//button[contains(., 'Save')] "
-        "| //div[contains(@class, 'q-dialog')]//div[contains(@class, 'q-btn') and contains(., 'Save')] "
+        "xpath=//div[contains(@class, 'q-dialog') or contains(@class, 'modal') or contains(@class, 'q-card')]//*[(self::button or contains(@class, 'q-btn')) and (contains(., 'Save') or contains(., 'Guardar'))] "
+        "| //div[contains(@class, 'q-dialog')]//button[contains(., 'Save')] "
         "| //div[contains(@class, 'q-dialog')]//span[normalize-space()='Save']"
     ),
     
     # Botón Search y Spinners
-    "btn_search": "xpath=//button[contains(., 'Search')] | //div[contains(@class, 'q-btn') and contains(., 'Search')] | //div[contains(@class, 'btn') and contains(., 'Search')]",
+    "btn_search": (
+        "xpath=//button[contains(., 'Search') or contains(., 'Buscar')] "
+        "| //div[contains(@class, 'q-btn') and (contains(., 'Search') or contains(., 'Buscar'))] "
+        "| //div[contains(@class, 'btn') and contains(., 'Search')]"
+    ),
     "connecting_mask": "xpath=//*[contains(text(), 'Connecting to the web')]",
     "searching_spinner": "xpath=//*[contains(text(), 'Searching...') or contains(@class, 'q-spinner') or contains(@class, 'spinner')]",
     

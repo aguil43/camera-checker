@@ -138,121 +138,163 @@ class CameraChecker:
             pass
 
     def _detect_interface_type(self, page: Page, base_url: str) -> str:
-        """Determina si la cámara usa la interfaz Clásica (/setup/) o Quasar (Moderna)."""
-        logger.info("Identificando tipo de interfaz web de la cámara...")
-        try:
-            page.wait_for_selector(
-                "xpath=//a[contains(text(), 'Configuration')] | //span[contains(text(), 'Configuration')] | //div[contains(text(), 'Live View')] | //div[contains(@class, 'q-layout')] | //div[contains(@class, 'menu')] | //span[contains(text(), 'System')]",
-                state="visible",
-                timeout=25000
-            )
-        except Exception:
-            time.sleep(3)
+        """Determina con precisión si la cámara usa la interfaz Clásica o Quasar (esperando la carga del SPA)."""
+        logger.info("Identificando tipo de interfaz web de la cámara (esperando carga)...")
+        
+        # Esperar hasta 6 segundos mientras la cámara resuelve su redirección SPA
+        max_wait = 6
+        start_t = time.time()
+        
+        while time.time() - start_t < max_wait:
+            current_url = page.url.lower()
+            
+            # 1. Si la URL ya resolvió al hash SPA (#/) o fcms
+            if "#/" in current_url or "fcms" in current_url:
+                logger.info("Interfaz detectada como QUASAR (por hash SPA: %s)", page.url)
+                return "QUASAR"
+            
+            # 2. Si el contenedor raíz de Quasar ya apareció en el DOM
+            try:
+                if page.locator("#q-app, .q-layout, .q-page-container").first.is_visible(timeout=500):
+                    logger.info("Interfaz detectada como QUASAR (por contenedor #q-app en DOM)")
+                    return "QUASAR"
+            except Exception:
+                pass
 
-        current_url = page.url.lower()
-
-        # Si ya está en una ruta /setup/ o tiene la pestaña Configuration clásica
-        if "/setup/" in current_url:
-            return "CLASSIC"
-
-        try:
-            config_tab = page.locator(VIVOTEK_CLASSIC_SELECTORS["tab_configuration"]).first
-            if config_tab.is_visible(timeout=3000):
+            # 3. Si la URL es explícitamente /setup/ o storage_searching
+            if "/setup/" in current_url or "storage_searching" in current_url:
+                logger.info("Interfaz detectada como CLASSIC (por ruta /setup/: %s)", page.url)
                 return "CLASSIC"
-        except Exception:
-            pass
 
-        # Si tiene la estructura Quasar o /home.html#/
-        if "#/" in current_url or "fcms" in current_url:
+            time.sleep(1.0)
+
+        # Si tras esperar no apareció ningún indicador de Quasar (#/ o #q-app):
+        current_url = page.url.lower()
+        if "#/" in current_url:
+            logger.info("Interfaz detectada como QUASAR (%s)", page.url)
             return "QUASAR"
 
-        try:
-            quasar_elem = page.locator(".q-layout, .q-page, .q-select, text='Live View'").first
-            if quasar_elem.is_visible(timeout=3000):
-                return "QUASAR"
-        except Exception:
-            pass
-
-        return "QUASAR"
+        logger.info("Interfaz detectada como CLASSIC (%s)", page.url)
+        return "CLASSIC"
 
     # =========================================================================
     # MANEJO DE INTERFAZ 1: QUASAR (MODERNA)
     # =========================================================================
     def _handle_quasar_interface(self, page: Page, base_url: str, interval_minutes: int) -> List[RecordingItem]:
         """Flujo para la interfaz moderna Quasar."""
+        logger.info("[Quasar] Iniciando verificación en interfaz moderna...")
+        target_file_url = f"{base_url.rstrip('/')}/home.html#/file_general"
+
         if "file_general" not in page.url:
-            target_file_url = f"{base_url.rstrip('/')}/home.html#/file_general"
-            logger.info("[Quasar] Navegando a: %s", target_file_url)
+            logger.info("[Quasar] Navegando a URL de archivos: %s", target_file_url)
             try:
                 page.goto(target_file_url, wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
-            except Exception:
-                pass
+                time.sleep(3)
+            except Exception as e:
+                logger.debug("[Quasar] Aviso en goto: %s", e)
 
+        # Esperar máscara inicial si aparece
         try:
-            connecting_mask = page.locator(VIVOTEK_QUASAR_SELECTORS["connecting_mask"]).first
-            if connecting_mask.is_visible(timeout=3000):
-                connecting_mask.wait_for(state="hidden", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
+            mask = page.locator(".q-loading, .connecting-mask").first
+            if mask.is_visible(timeout=2000):
+                mask.wait_for(state="hidden", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
         except Exception:
             pass
 
         time.sleep(2)
 
-        # 1. Abrir Time frame dropdown y seleccionar Custom time interval
-        logger.info("[Quasar] Localizando selector Time frame...")
-        dropdown = page.locator(VIVOTEK_QUASAR_SELECTORS["time_frame_dropdown"]).first
-        dropdown.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
-        dropdown.click()
+        # Asegurar hash #/file_general
+        if "file_general" not in page.url:
+            try:
+                page.evaluate("window.location.hash = '#/file_general'")
+                time.sleep(3)
+            except Exception:
+                pass
+
+        # 1. Paso 1: Abrir el selector de marco de tiempo (Time frame)
+        logger.info("[Quasar] Paso 1: Localizando y abriendo selector Time frame...")
+        time_frame_loc = page.locator(".q-field").filter(has_text="Time frame").first
+        if not time_frame_loc.is_visible(timeout=2000):
+            time_frame_loc = page.locator(".q-field").filter(has_text="Last").first
+        if not time_frame_loc.is_visible(timeout=2000):
+            time_frame_loc = page.locator("text=Last 24 hours").first
+
+        time_frame_loc.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
+        time_frame_loc.click(force=True)
+        logger.info("[Quasar] Selector Time frame clickeado.")
         time.sleep(1)
 
-        option_custom = page.locator(VIVOTEK_QUASAR_SELECTORS["option_custom_interval"]).first
-        option_custom.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
-        option_custom.click()
+        # 2. Paso 2: Seleccionar 'Custom time interval' del menú desplegado
+        logger.info("[Quasar] Paso 2: Seleccionando 'Custom time interval'...")
+        custom_opt = page.locator(".q-menu .q-item, .q-item").filter(has_text="Custom time interval").first
+        if not custom_opt.is_visible(timeout=3000):
+            custom_opt = page.locator("text=Custom time interval").first
+
+        custom_opt.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
+        custom_opt.click(force=True)
+        logger.info("[Quasar] 'Custom time interval' clickeado.")
         time.sleep(1.5)
 
-        # 2. Editar modal Date & Time
-        modal = page.locator(VIVOTEK_QUASAR_SELECTORS["modal_date_time"]).first
+        # 3. Paso 3: Configurar hora en el modal 'Date & Time'
+        logger.info("[Quasar] Paso 3: Esperando modal Date & Time para configurar %s minutos...", interval_minutes)
+        modal = page.locator(".q-dialog").first
         modal.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
 
         inputs = modal.locator("input")
-        if inputs.count() >= 4:
+        inputs.first.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
+        time.sleep(0.5)
+
+        input_count = inputs.count()
+        logger.info("[Quasar] Modal Date & Time detectado con %s campos input", input_count)
+
+        if input_count >= 4:
             end_time_str = inputs.nth(3).input_value().strip()
             logger.info("[Quasar] Hora final en cámara: '%s'", end_time_str)
 
             start_time_val = None
             if end_time_str and ":" in end_time_str:
                 try:
-                    parts = [int(p) for p in end_time_str.split(":")[:2]]
+                    clean_time = end_time_str.split()[0] if " " in end_time_str else end_time_str
+                    parts = [int(p) for p in clean_time.split(":")[:2]]
                     end_dt = datetime.now().replace(hour=parts[0], minute=parts[1], second=0)
                     start_dt = end_dt - timedelta(minutes=interval_minutes)
                     start_time_val = start_dt.strftime("%H:%M")
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.debug("[Quasar] Error calculando Start Time: %s", ex)
 
             if not start_time_val:
                 start_time_val = (datetime.now() - timedelta(minutes=interval_minutes)).strftime("%H:%M")
 
-            logger.info("[Quasar] Estableciendo Start Time a '%s'...", start_time_val)
+            logger.info("[Quasar] Escribiendo Start Time: '%s'...", start_time_val)
             start_input = inputs.nth(1)
-            start_input.click()
+            start_input.click(force=True)
             start_input.press("Control+A")
             start_input.fill(start_time_val)
             start_input.press("Tab")
             time.sleep(0.5)
 
-        save_btn = modal.locator(VIVOTEK_QUASAR_SELECTORS["modal_btn_save"]).first
+        # Clic en Save dentro del modal
+        logger.info("[Quasar] Guardando configuración del modal (Save)...")
+        save_btn = modal.locator("button, .q-btn").filter(has_text="Save").first
         save_btn.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
-        save_btn.click()
-        time.sleep(1.5)
-
-        # 3. Clic en Search
-        search_btn = page.locator(VIVOTEK_QUASAR_SELECTORS["btn_search"]).first
-        search_btn.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
-        search_btn.click()
-        logger.info("[Quasar] Búsqueda iniciada. Esperando resultados...")
-
-        time.sleep(1.5)
+        save_btn.click(force=True)
+        
         try:
-            spinner = page.locator(VIVOTEK_QUASAR_SELECTORS["searching_spinner"]).first
+            modal.wait_for(state="hidden", timeout=5000)
+        except Exception:
+            time.sleep(1.5)
+
+        # 4. Paso 4: Clic en el botón Search en la vista de archivos
+        logger.info("[Quasar] Paso 4: Presionando botón Search...")
+        search_btn = page.locator(".q-page button, button, .q-btn").filter(has_text="Search").first
+        search_btn.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
+        search_btn.click(force=True)
+
+        logger.info("[Quasar] Búsqueda iniciada. Esperando resultados...")
+        time.sleep(2)
+
+        try:
+            spinner = page.locator(".q-spinner, .q-loading, text='Searching...'").first
             if spinner.is_visible(timeout=3000):
                 spinner.wait_for(state="hidden", timeout=settings.SEARCH_WAIT_TIMEOUT_MS)
         except Exception:
@@ -268,35 +310,61 @@ class CameraChecker:
         start_t = time.time()
 
         while time.time() - start_t < max_wait:
-            rows = page.locator(VIVOTEK_QUASAR_SELECTORS["table_rows"])
-            count = rows.count()
-            if count > 0:
-                for i in range(count):
-                    try:
-                        row = rows.nth(i)
-                        cells = row.locator("xpath=.//td | .//div[contains(@class, 'cell')]")
-                        row_texts = [cells.nth(j).inner_text().strip() for j in range(cells.count())]
-                        start_time_str = ""
-                        for t in row_texts:
-                            dt = parse_camera_datetime(t)
-                            if dt:
-                                start_time_str = t
-                                break
-                        recordings.append(RecordingItem(
-                            file_name=row_texts[1] if len(row_texts) > 1 else f"File_{i+1}",
-                            storage="SD",
-                            trigger_type="Motion",
-                            start_time_str=start_time_str or "Reciente",
-                            end_time_str=None,
-                            media_type="Video clip",
-                            start_time=parse_camera_datetime(start_time_str) if start_time_str else datetime.now()
-                        ))
-                    except Exception:
-                        pass
-                if recordings:
-                    return recordings
-            time.sleep(1.5)
+            found_rows = page.evaluate("""() => {
+                const rows = Array.from(document.querySelectorAll("table.q-table tbody tr, .q-table tbody tr, table tbody tr, .q-table__grid-item"));
+                const items = [];
+                for (const r of rows) {
+                    const txt = (r.innerText || "").trim();
+                    if (!txt || txt.includes("No data") || txt.includes("No search results") || txt.includes("0 results") || txt.length > 500) {
+                        continue;
+                    }
+                    const cells = Array.from(r.querySelectorAll("td, .q-td, div.cell")).map(c => (c.innerText || "").trim()).filter(t => t.length > 0);
+                    if (cells.length >= 2 || (txt.includes("mov") || txt.includes("Motion") || txt.includes("Today at") || txt.includes("202"))) {
+                        items.push({
+                            text: txt,
+                            cells: cells.length > 0 ? cells : [txt]
+                        });
+                    }
+                }
+                return items;
+            }""")
 
+            if found_rows and len(found_rows) > 0:
+                logger.info("[Quasar] ¡Grabaciones detectadas en la tabla! (Total: %s registros)", len(found_rows))
+                for i, row_data in enumerate(found_rows):
+                    cells = row_data.get("cells", [])
+                    txt = row_data.get("text", "")
+                    
+                    start_time_str = "Activo"
+                    file_name = f"File_{i+1}"
+                    
+                    for c in cells:
+                        dt = parse_camera_datetime(c)
+                        if dt:
+                            start_time_str = c
+                            break
+                        if c.startswith("mov") or ".mp4" in c or ".avi" in c:
+                            file_name = c
+
+                    if start_time_str == "Activo":
+                        dt = parse_camera_datetime(txt)
+                        if dt:
+                            start_time_str = dt.strftime("%Y/%m/%d %H:%M:%S")
+
+                    recordings.append(RecordingItem(
+                        file_name=file_name,
+                        storage="SD",
+                        trigger_type="Motion",
+                        start_time_str=start_time_str,
+                        end_time_str=None,
+                        media_type="Video clip",
+                        start_time=parse_camera_datetime(start_time_str) if start_time_str != "Activo" else datetime.now()
+                    ))
+                return recordings
+
+            time.sleep(1.0)
+
+        logger.info("[Quasar] No se encontraron grabaciones tras esperar los 20 segundos.")
         return recordings
 
     # =========================================================================
@@ -366,7 +434,7 @@ class CameraChecker:
         time.sleep(2.5)
         recordings: List[RecordingItem] = []
 
-        max_wait = 15
+        max_wait = 20
         start_t = time.time()
         while time.time() - start_t < max_wait:
             all_found_items = []
