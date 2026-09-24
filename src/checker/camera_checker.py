@@ -28,19 +28,29 @@ class CameraChecker:
         if not target_url.startswith("http://") and not target_url.startswith("https://"):
             target_url = f"http://{target_url}"
 
+        # Determinar URL inicial directa según tipo de interfaz
+        if camera.interface == 0:
+            interface_name = "CLASSIC"
+            initial_url = f"{target_url.rstrip('/')}/setup/option.html"
+            logger.info("[%s] Modo de interfaz: CLÁSICA (interface=0)", camera.name)
+        else:
+            interface_name = "QUASAR"
+            initial_url = target_url
+            logger.info("[%s] Modo de interfaz: MODERNA / QUASAR (interface=1)", camera.name)
+
         try:
             context = self.browser_manager.create_camera_context(camera.username, camera.password)
             page = context.new_page()
             page.set_default_timeout(settings.ELEMENT_WAIT_TIMEOUT_MS)
 
-            # 1. Conexión inicial
-            logger.info("[%s] Conectando a %s ...", camera.name, target_url)
+            # 1. Conexión inicial directa
+            logger.info("[%s] Conectando a %s ...", camera.name, initial_url)
             try:
-                response = page.goto(target_url, timeout=settings.PAGE_LOAD_TIMEOUT_MS, wait_until="domcontentloaded")
+                response = page.goto(initial_url, timeout=settings.PAGE_LOAD_TIMEOUT_MS, wait_until="domcontentloaded")
             except PlaywrightTimeoutError:
                 return self._create_log_and_screenshot(
                     camera, CameraStatus.OFFLINE, 0, None,
-                    f"Tiempo de espera agotado al conectar a {target_url} (Timeout {settings.PAGE_LOAD_TIMEOUT_MS/1000}s)",
+                    f"Tiempo de espera agotado al conectar a {initial_url} (Timeout {settings.PAGE_LOAD_TIMEOUT_MS/1000}s)",
                     page, timestamp_str
                 )
             except PlaywrightError as e:
@@ -61,13 +71,10 @@ class CameraChecker:
             # 3. Superar posibles advertencias de seguridad de Chrome ("Continuar al sitio")
             self._handle_insecure_warning(page)
 
-            # 4. Detectar qué tipo de interfaz tiene la cámara (Moderna Quasar vs Clásica /setup/)
-            interface_type = self._detect_interface_type(page, target_url)
-            logger.info("[%s] Interfaz detectada: %s", camera.name, interface_type)
-
+            # 4. Ejecutar flujo según interfaz
             interval_mins = settings.CUSTOM_INTERVAL_MINUTES
 
-            if interface_type == "CLASSIC":
+            if camera.interface == 0:
                 recordings = self._handle_classic_interface(page, target_url, interval_mins)
             else:
                 recordings = self._handle_quasar_interface(page, target_url, interval_mins)
@@ -77,7 +84,7 @@ class CameraChecker:
 
             if recordings:
                 count = len(recordings)
-                details = f"Chequeo exitoso ({interface_type}). Grabaciones activas detectadas en los últimos {interval_mins} min ({count} archivos). Más reciente: {latest_time_str}"
+                details = f"Chequeo exitoso ({interface_name}). Grabaciones activas detectadas en los últimos {interval_mins} min ({count} archivos). Más reciente: {latest_time_str}"
                 logger.info("[%s] %s", camera.name, details)
                 if save_screenshot_on_ok:
                     screenshot_path = self._take_screenshot(page, camera.id or 0, timestamp_str, "OK")
@@ -91,7 +98,7 @@ class CameraChecker:
                     screenshot_path=screenshot_path
                 )
             else:
-                details = f"No se encontraron grabaciones (0 resultados) en los últimos {interval_mins} minutos ({interface_type})."
+                details = f"No se encontraron grabaciones (0 resultados) en los últimos {interval_mins} minutos ({interface_name})."
                 logger.warning("[%s] %s", camera.name, details)
                 screenshot_path = self._take_screenshot(page, camera.id or 0, timestamp_str, "NO_RECORDINGS")
                 return CheckLog(
@@ -137,61 +144,57 @@ class CameraChecker:
         except Exception:
             pass
 
-    def _detect_interface_type(self, page: Page, base_url: str) -> str:
-        """Determina con precisión si la cámara usa la interfaz Clásica o Quasar (esperando la carga del SPA)."""
-        logger.info("Identificando tipo de interfaz web de la cámara (esperando carga)...")
-        
-        # Esperar hasta 6 segundos mientras la cámara resuelve su redirección SPA
-        max_wait = 6
-        start_t = time.time()
-        
-        while time.time() - start_t < max_wait:
-            current_url = page.url.lower()
-            
-            # 1. Si la URL ya resolvió al hash SPA (#/) o fcms
-            if "#/" in current_url or "fcms" in current_url:
-                logger.info("Interfaz detectada como QUASAR (por hash SPA: %s)", page.url)
-                return "QUASAR"
-            
-            # 2. Si el contenedor raíz de Quasar ya apareció en el DOM
-            try:
-                if page.locator("#q-app, .q-layout, .q-page-container").first.is_visible(timeout=500):
-                    logger.info("Interfaz detectada como QUASAR (por contenedor #q-app en DOM)")
-                    return "QUASAR"
-            except Exception:
-                pass
-
-            # 3. Si la URL es explícitamente /setup/ o storage_searching
-            if "/setup/" in current_url or "storage_searching" in current_url:
-                logger.info("Interfaz detectada como CLASSIC (por ruta /setup/: %s)", page.url)
-                return "CLASSIC"
-
-            time.sleep(1.0)
-
-        # Si tras esperar no apareció ningún indicador de Quasar (#/ o #q-app):
-        current_url = page.url.lower()
-        if "#/" in current_url:
-            logger.info("Interfaz detectada como QUASAR (%s)", page.url)
-            return "QUASAR"
-
-        logger.info("Interfaz detectada como CLASSIC (%s)", page.url)
-        return "CLASSIC"
-
     # =========================================================================
     # MANEJO DE INTERFAZ 1: QUASAR (MODERNA)
     # =========================================================================
     def _handle_quasar_interface(self, page: Page, base_url: str, interval_minutes: int) -> List[RecordingItem]:
         """Flujo para la interfaz moderna Quasar."""
-        logger.info("[Quasar] Iniciando verificación en interfaz moderna...")
-        target_file_url = f"{base_url.rstrip('/')}/home.html#/file_general"
+        # 1. Esperar activamente a que la página principal cargue algún elemento visible y no esté en blanco
+        logger.info("[Quasar] Verificando carga de la página principal (esperando elementos visibles antes de navegar)...")
+        max_wait_initial = 30
+        start_t = time.time()
+        page_rendered = False
 
+        while time.time() - start_t < max_wait_initial:
+            try:
+                # Comprobar si hay elementos renderizados en el DOM y visibles en pantalla
+                is_rendered = page.evaluate("""() => {
+                    const app = document.querySelector('#q-app');
+                    const hasAppChildren = app && app.children.length > 0;
+                    const header = document.querySelector('.q-header, header, .q-layout, .q-toolbar, .q-page-container');
+                    const bodyText = (document.body && document.body.innerText) ? document.body.innerText.trim() : '';
+                    return (hasAppChildren || header) && bodyText.length > 0;
+                }""")
+                if is_rendered:
+                    page_rendered = True
+                    logger.info("[Quasar] Página principal cargada correctamente con elementos visibles.")
+                    break
+            except Exception:
+                pass
+            logger.debug("[Quasar] Página aún en blanco o cargando componentes...")
+            time.sleep(1.0)
+
+        if not page_rendered:
+            logger.warning("[Quasar] La página principal sigue observándose en blanco tras %ss. Se intentará continuar con precaución.", max_wait_initial)
+        else:
+            time.sleep(2)
+
+        # 2. Navegación a la vista de archivos (#/file_general)
+        target_file_url = f"{base_url.rstrip('/')}/home.html#/file_general"
         if "file_general" not in page.url:
             logger.info("[Quasar] Navegando a URL de archivos: %s", target_file_url)
             try:
-                page.goto(target_file_url, wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
-                time.sleep(3)
-            except Exception as e:
-                logger.debug("[Quasar] Aviso en goto: %s", e)
+                page.evaluate("() => { window.location.hash = '#/file_general'; }")
+                time.sleep(2)
+            except Exception:
+                pass
+
+            if "file_general" not in page.url:
+                try:
+                    page.goto(target_file_url, wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
+                    time.sleep(2)
+                except Exception as e:
+                    logger.debug("[Quasar] Aviso en goto: %s", e)
 
         # Esperar máscara inicial si aparece
         try:
@@ -201,13 +204,13 @@ class CameraChecker:
         except Exception:
             pass
 
-        time.sleep(2)
+        time.sleep(1.5)
 
         # Asegurar hash #/file_general
         if "file_general" not in page.url:
             try:
-                page.evaluate("window.location.hash = '#/file_general'")
-                time.sleep(3)
+                page.evaluate("() => { window.location.hash = '#/file_general'; }")
+                time.sleep(2)
             except Exception:
                 pass
 
@@ -373,102 +376,146 @@ class CameraChecker:
     def _handle_classic_interface(self, page: Page, base_url: str, interval_minutes: int) -> List[RecordingItem]:
         """Flujo para la interfaz clásica VIVOTEK (/setup/localstorage/storage_searching.html)."""
         search_page_url = f"{base_url.rstrip('/')}/setup/localstorage/storage_searching.html"
-        logger.info("[Clásica] Navegando a página de búsqueda: %s", search_page_url)
-        try:
-            page.goto(search_page_url, wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
-            time.sleep(2)
-        except Exception:
-            pass
-
         if "storage_searching" not in page.url:
-            logger.info("[Clásica] Navegando mediante menú lateral...")
+            logger.info("[Clásica] Navegando a página de búsqueda: %s", search_page_url)
             try:
-                config_tab = page.locator(VIVOTEK_CLASSIC_SELECTORS["tab_configuration"]).first
-                if config_tab.is_visible(timeout=5000):
-                    config_tab.click()
-                    time.sleep(2)
-
-                storage_menu = page.locator(VIVOTEK_CLASSIC_SELECTORS["menu_storage"]).first
-                if storage_menu.is_visible(timeout=10000):
-                    storage_menu.click()
-                    time.sleep(1.5)
-
-                content_mgmt = page.locator(VIVOTEK_CLASSIC_SELECTORS["menu_content_management"]).first
-                if content_mgmt.is_visible(timeout=10000):
-                    content_mgmt.click()
-                    time.sleep(2)
+                page.goto(search_page_url, wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
             except Exception as e:
-                logger.warning("[Clásica] Aviso al navegar por menú: %s", e)
+                logger.warning("[Clásica] Aviso al cargar URL directa: %s", e)
 
-        # 1. Escribir los minutos en el campo de texto
-        logger.info("[Clásica] Configurando búsqueda de los últimos %s minutos...", interval_minutes)
+        # Esperar a que los componentes AngularJS/DOM terminen de compilar e inicializar parámetros
+        for _ in range(12):
+            try:
+                has_uncompiled = page.evaluate("() => document.body && document.body.innerText.includes('{{')")
+                if not has_uncompiled:
+                    break
+            except Exception:
+                pass
+            time.sleep(1.0)
+
         try:
             input_mins = page.locator(VIVOTEK_CLASSIC_SELECTORS["input_minutes"]).first
-            input_mins.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
-            input_mins.click()
-            input_mins.press("Control+A")
-            input_mins.fill(str(interval_minutes))
-            input_mins.press("Tab")
-            time.sleep(0.5)
-            logger.info("[Clásica] Minutos ingresados: %s", interval_minutes)
-        except Exception as ex:
-            logger.warning("[Clásica] No se pudo escribir en el campo de minutos: %s", ex)
+            input_mins.wait_for(state="visible", timeout=15000)
+            time.sleep(1)
+        except Exception as e:
+            logger.warning("[Clásica] Esperando inicialización de componentes: %s", e)
+            time.sleep(2)
 
-        # 2. Hacer clic en el botón 'minute(s)' para activar el cálculo de fecha/hora de 5 minutos
+        # 2. Configurar intervalo de minutos y ejecutar búsqueda (mediante AngularJS scope o interacción DOM)
+        logger.info("[Clásica] Configurando búsqueda de los últimos %s minutos...", interval_minutes)
+        search_triggered = False
         try:
-            btn_min = page.locator(VIVOTEK_CLASSIC_SELECTORS["btn_minutes"]).first
-            if btn_min.is_visible(timeout=5000):
-                btn_min.click()
-                logger.info("[Clásica] Botón 'minute(s)' clickeado para activar el cálculo de 5 minutos.")
-                time.sleep(1)
-        except Exception as ex:
-            logger.warning("[Clásica] No se pudo hacer clic en el botón 'minute(s)': %s", ex)
+            # Intentar primero mediante AngularJS (método nativo y confiable de la interfaz)
+            search_triggered = page.evaluate(f"""() => {{
+                try {{
+                    const el = document.querySelector("input[ng-model='nrecent']");
+                    if (window.angular && el) {{
+                        const scope = angular.element(el).scope();
+                        if (scope) {{
+                            scope.$apply(() => {{
+                                scope.nrecent = {interval_minutes};
+                                scope.recentsec = 60;
+                                if (typeof scope.update_search_picker_by_timerange === 'function') {{
+                                    scope.update_search_picker_by_timerange();
+                                }}
+                            }});
+                            if (typeof scope.submit_search === 'function') {{
+                                scope.$apply(() => {{
+                                    scope.submit_search();
+                                }});
+                                return true;
+                            }}
+                        }}
+                    }}
+                }} catch(e) {{}}
+                return false;
+            }}""")
+        except Exception as e:
+            logger.debug("[Clásica] Aviso en Angular evaluate: %s", e)
 
-        # 3. Clic en el botón Search
-        search_btn = page.locator(VIVOTEK_CLASSIC_SELECTORS["btn_search"]).first
-        search_btn.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
-        search_btn.click()
-        logger.info("[Clásica] Botón Search presionado. Esperando resultados...")
+        if not search_triggered:
+            # Fallback por interacción DOM tradicional
+            try:
+                input_mins = page.locator(VIVOTEK_CLASSIC_SELECTORS["input_minutes"]).first
+                input_mins.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
+                input_mins.click()
+                input_mins.press("Control+A")
+                input_mins.fill(str(interval_minutes))
+                input_mins.press("Tab")
+                time.sleep(0.5)
+            except Exception as ex:
+                logger.warning("[Clásica] No se pudo escribir en el campo de minutos: %s", ex)
 
-        # 4. Esperar y verificar si aparecen filas con grabaciones en la tabla de Search results
-        time.sleep(2.5)
+            try:
+                btn_min = page.locator(VIVOTEK_CLASSIC_SELECTORS["btn_minutes"]).first
+                if btn_min.is_visible(timeout=5000):
+                    btn_min.click()
+                    time.sleep(1)
+            except Exception as ex:
+                logger.warning("[Clásica] No se pudo hacer clic en el botón 'minute(s)': %s", ex)
+
+            try:
+                search_btn = page.locator(VIVOTEK_CLASSIC_SELECTORS["btn_search"]).first
+                search_btn.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
+                search_btn.click()
+            except Exception as ex:
+                logger.warning("[Clásica] No se pudo hacer clic en el botón Search: %s", ex)
+
+        logger.info("[Clásica] Búsqueda enviada. Esperando resultados...")
+        time.sleep(3.0)
         recordings: List[RecordingItem] = []
 
         max_wait = 20
         start_t = time.time()
         while time.time() - start_t < max_wait:
+            # 1. Intentar extraer datos estructurados directamente del scope AngularJS
+            try:
+                scope_data = page.evaluate("""() => {
+                    try {
+                        const el = document.querySelector("[ng-controller]");
+                        if (window.angular && el) {
+                            const scope = angular.element(el).scope();
+                            if (scope && scope.gridData && scope.gridData.length > 0) {
+                                return scope.gridData;
+                            }
+                        }
+                    } catch(e) {}
+                    return null;
+                }""")
+                if scope_data and len(scope_data) > 0:
+                    logger.info("[Clásica] ¡Grabaciones detectadas en datos AngularJS! (Total: %s)", len(scope_data))
+                    for item in scope_data[:20]:
+                        time_display = item.get("sliceStartDisplay") or item.get("sliceStart") or "Activo"
+                        recordings.append(RecordingItem(
+                            file_name=item.get("name") or "Record",
+                            storage=item.get("deviceName") or item.get("device") or "SD",
+                            trigger_type=item.get("triggerFilter") or item.get("triggerType") or "Periodically",
+                            start_time_str=str(time_display),
+                            end_time_str=str(item.get("sliceEndDisplay") or item.get("sliceEnd") or ""),
+                            media_type="Video clip",
+                            start_time=datetime.now()
+                        ))
+                    return recordings
+            except Exception:
+                pass
+
+            # 2. Fallback de extracción desde el DOM
             all_found_items = []
-            
-            # Buscar en el frame principal y en cualquier sub-frame (iframe/frameset)
             for f in page.frames:
                 try:
                     items = f.evaluate("""() => {
                         const results = [];
-                        // 1. Buscar filas de tabla convencionales o contenedores de fila
-                        const allRows = Array.from(document.querySelectorAll("tr, div.row, div.grid-row, div[role='row']"));
+                        const allRows = Array.from(document.querySelectorAll("table tbody tr, .ngRow, div[role='row']"));
                         for (const r of allRows) {
                             const txt = (r.innerText || "").trim();
-                            // Ignorar cabeceras y textos largos del formulario superior
-                            if (!txt || txt.length > 300 || txt.includes("Search for last") || txt.includes("Content management")) {
+                            if (!txt || txt.length > 300 || txt.includes("Search for last") || txt.includes("Content management") || txt.includes("Trigger type")) {
                                 continue;
                             }
-                            if ((txt.includes("Today at") || txt.includes("Yesterday at") || txt.includes("mov")) && 
-                                (txt.includes("Motion") || txt.includes("SD") || txt.includes("PM") || txt.includes("AM"))) {
+                            if ((txt.includes("Today at") || txt.includes("Yesterday at") || txt.includes("mov") || txt.includes("Record")) && 
+                                (txt.includes("Motion") || txt.includes("SD") || txt.includes("Periodically") || txt.includes("PM") || txt.includes("AM"))) {
                                 results.push(txt);
                             }
                         }
-
-                        // 2. Si no encontró por filas completas, buscar celdas o elementos de fecha/hora de resultados
-                        if (results.length === 0) {
-                            const timeElements = Array.from(document.querySelectorAll("td, div, span, p, font, nobr, a"));
-                            for (const el of timeElements) {
-                                const txt = (el.innerText || "").trim();
-                                if (txt.length > 5 && txt.length < 80 && (txt.includes("Today at") || txt.includes("Yesterday at"))) {
-                                    results.push(txt);
-                                }
-                            }
-                        }
-
                         return results;
                     }""")
                     if items:
@@ -478,12 +525,10 @@ class CameraChecker:
 
             if all_found_items:
                 logger.info("[Clásica] ¡Grabaciones detectadas en la interfaz! (%s elementos encontrados)", len(all_found_items))
-                # Extraer la fecha/hora más representativa
                 latest_str = "Activo (Reciente)"
                 for itm in all_found_items:
-                    if "Today at" in itm or "Yesterday at" in itm:
-                        # Si es un texto de fila completa con múltiples líneas, tomar la línea con la hora
-                        lines = [line.strip() for line in itm.split("\n") if "Today at" in line or "Yesterday at" in line]
+                    if "Today at" in itm or "Yesterday at" in itm or ":" in itm:
+                        lines = [line.strip() for line in itm.split("\n") if "Today at" in line or "Yesterday at" in line or "PM" in line or "AM" in line]
                         if lines:
                             latest_str = lines[0]
                         else:
@@ -491,16 +536,10 @@ class CameraChecker:
                         break
 
                 for idx, itm in enumerate(all_found_items[:20]):
-                    file_name = f"movRecord_{idx+1}"
-                    for part in itm.split():
-                        if part.startswith("mov") or ".mp4" in part:
-                            file_name = part
-                            break
-
                     recordings.append(RecordingItem(
-                        file_name=file_name,
+                        file_name=f"Record_{idx+1}",
                         storage="SD",
-                        trigger_type="Motion",
+                        trigger_type="Periodically",
                         start_time_str=latest_str,
                         end_time_str=None,
                         media_type="Video clip",

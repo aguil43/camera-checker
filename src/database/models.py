@@ -26,6 +26,7 @@ class Camera(BaseModel):
     username: str
     password: str
     vendor_type: str = "vivotek"
+    interface: int = 1  # 1 = Moderna (Quasar), 0 = Clásica (/setup/)
     enabled: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

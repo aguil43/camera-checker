@@ -24,11 +24,19 @@ def init_db():
         username TEXT NOT NULL,
         password TEXT NOT NULL,
         vendor_type TEXT NOT NULL DEFAULT 'vivotek',
+        interface INTEGER NOT NULL DEFAULT 1,
         enabled BOOLEAN NOT NULL DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+
+    # Migración automática: verificar si la columna 'interface' existe
+    cursor.execute("PRAGMA table_info(cameras)")
+    columns = [row["name"] for row in cursor.fetchall()]
+    if "interface" not in columns:
+        cursor.execute("ALTER TABLE cameras ADD COLUMN interface INTEGER NOT NULL DEFAULT 1;")
+        logger.info("Migración aplicada: Columna 'interface' agregada a la tabla cameras (Default: 1)")
 
     # Tabla check_logs
     cursor.execute("""

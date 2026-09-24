@@ -79,14 +79,16 @@ VIVOTEK_CLASSIC_SELECTORS = {
     
     # Filtro de tiempo por minutos (Search for last [ X ] [ minute(s) ])
     "input_minutes": (
-        "xpath=//input[@type='text' and (following-sibling::text()[contains(., 'minute')] or ../text()[contains(., 'minute')])] "
+        "xpath=//input[@ng-model='nrecent'] "
+        "| //input[@type='text' and (following-sibling::text()[contains(., 'minute')] or ../text()[contains(., 'minute')])] "
         "| //td[contains(., 'Search for last')]//input[@type='text'] "
         "| //input[contains(@id, 'min') or contains(@name, 'min')] "
         "| //input[@type='text'][following-sibling::input[@value='minute(s)'] or following-sibling::input[contains(@value, 'minute')]]"
     ),
     "btn_minutes": (
-        "xpath=//input[@type='button' and contains(@value, 'minute')] "
+        "xpath=//button[@btn-radio='60'] "
         "| //button[contains(., 'minute')] "
+        "| //input[@type='button' and contains(@value, 'minute')] "
         "| //span[contains(text(), 'minute(s)')] "
         "| //div[contains(text(), 'minute(s)')] "
         "| //input[contains(@value, 'minute')]"
@@ -94,7 +96,8 @@ VIVOTEK_CLASSIC_SELECTORS = {
     
     # Botón Search
     "btn_search": (
-        "xpath=//button[contains(., 'Search')] "
+        "xpath=//button[@ng-click='submit_search()'] "
+        "| //button[contains(., 'Search')] "
         "| //input[@type='button' and contains(@value, 'Search')] "
         "| //input[@type='submit' and contains(@value, 'Search')] "
         "| //a[contains(., 'Search') or contains(@class, 'search')]"
@@ -102,7 +105,8 @@ VIVOTEK_CLASSIC_SELECTORS = {
     
     # Resultados y tabla específica de grabaciones
     "table_rows": (
-        "xpath=//fieldset[.//legend[contains(text(), 'Search results')]]//table//tr[td and (not(.//th) and not(.//select) and not(.//input[@value='Download']))] "
+        "xpath=//*[contains(@class, 'ngRow')] "
+        "| //fieldset[.//legend[contains(text(), 'Search results')]]//table//tr[td and (not(.//th) and not(.//select) and not(.//input[@value='Download']))] "
         "| //table[.//th[contains(text(), 'Starting time') or contains(text(), 'Name')]]//tr[td and not(.//th) and not(.//select)] "
         "| //div[contains(@class, 'search_result')]//table//tr[td and not(.//th)]"
     ),

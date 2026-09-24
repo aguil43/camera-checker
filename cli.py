@@ -29,16 +29,23 @@ def cmd_add_camera(args):
 
     vendor = args.vendor or "vivotek"
 
+    if args.interface is not None:
+        interface_val = args.interface
+    else:
+        raw_int = input("Tipo de interfaz [1=Moderna/Quasar, 0=Clásica] (defecto 1): ").strip()
+        interface_val = int(raw_int) if raw_int in ("0", "1") else 1
+
     cam = Camera(
         name=name,
         ip_or_url=url,
         username=username,
         password=password,
         vendor_type=vendor,
+        interface=interface_val,
         enabled=True
     )
     cam_id = CameraRepository.add_camera(cam)
-    print(f"Cámara agregada exitosamente con ID #{cam_id}")
+    print(f"Cámara agregada exitosamente con ID #{cam_id} (Interfaz: {'Moderna [1]' if interface_val == 1 else 'Clásica [0]'})")
 
 def cmd_list_cameras(args):
     init_db()
@@ -56,11 +63,24 @@ def cmd_list_cameras(args):
             c.username,
             "********",
             c.vendor_type,
+            "Moderna (1)" if c.interface == 1 else "Clásica (0)",
             "Activa" if c.enabled else "Pausada"
         ])
 
-    headers = ["ID", "Nombre", "IP / URL", "Usuario", "Clave", "Fabricante", "Estado"]
+    headers = ["ID", "Nombre", "IP / URL", "Usuario", "Clave", "Fabricante", "Interfaz", "Estado"]
     print("\n" + tabulate(table, headers=headers, tablefmt="grid") + "\n")
+
+def cmd_set_interface(args):
+    init_db()
+    cam = CameraRepository.get_camera_by_id(args.id)
+    if not cam:
+        print(f"No se encontró la cámara con ID {args.id}")
+        return
+    if args.interface not in (0, 1):
+        print("El valor de interfaz debe ser 1 (Moderna/Quasar) o 0 (Clásica).")
+        return
+    CameraRepository.set_camera_interface(args.id, args.interface)
+    print(f"Cámara #{cam.id} '{cam.name}' actualizada a interfaz: {'Moderna (1)' if args.interface == 1 else 'Clásica (0)'}")
 
 def cmd_delete_camera(args):
     init_db()
@@ -93,7 +113,7 @@ def cmd_test_camera(args):
         return
 
     headless = not args.visible
-    print(f"Probando cámara #{cam.id} '{cam.name}' ({cam.ip_or_url}) - [Navegador {'Visible' if args.visible else 'Headless'}]...")
+    print(f"Probando cámara #{cam.id} '{cam.name}' ({cam.ip_or_url}) - [Interfaz: {'Moderna (1)' if cam.interface == 1 else 'Clásica (0)'}, Navegador {'Visible' if args.visible else 'Headless'}]...")
 
     with BrowserManager(headless=headless) as browser_mgr:
         checker = CameraChecker(browser_mgr)
@@ -121,6 +141,7 @@ def cmd_test_url(args):
     username = args.username or input("Usuario (ej. root): ").strip()
     password = args.password or getpass.getpass("Contraseña: ").strip()
     headless = not args.visible
+    interface_val = args.interface if args.interface is not None else 1
 
     cam = Camera(
         id=0,
@@ -128,10 +149,11 @@ def cmd_test_url(args):
         ip_or_url=url,
         username=username,
         password=password,
-        vendor_type="vivotek"
+        vendor_type="vivotek",
+        interface=interface_val
     )
 
-    print(f"\nIniciando prueba directa contra {url} (Navegador {'Visible' if args.visible else 'Headless'})...")
+    print(f"\nIniciando prueba directa contra {url} (Interfaz: {'Moderna (1)' if interface_val == 1 else 'Clásica (0)'}, Navegador {'Visible' if args.visible else 'Headless'})...")
     with BrowserManager(headless=headless) as browser_mgr:
         checker = CameraChecker(browser_mgr)
         log = checker.check_camera(cam, save_screenshot_on_ok=True)
@@ -190,6 +212,12 @@ def main():
     p_add.add_argument("--username", help="Usuario de acceso")
     p_add.add_argument("--password", help="Contraseña")
     p_add.add_argument("--vendor", default="vivotek", help="Fabricante (defecto: vivotek)")
+    p_add.add_argument("--interface", type=int, choices=[0, 1], default=None, help="Tipo de interfaz: 1=Moderna (Quasar), 0=Clásica")
+
+    # set-interface
+    p_set_int = subparsers.add_parser("set-interface", help="Cambiar tipo de interfaz de una cámara (1=Moderna, 0=Clásica)")
+    p_set_int.add_argument("id", type=int, help="ID de la cámara")
+    p_set_int.add_argument("interface", type=int, choices=[0, 1], help="Tipo de interfaz: 1=Moderna (Quasar), 0=Clásica")
 
     # list
     subparsers.add_parser("list", help="Listar cámaras registradas")
@@ -213,6 +241,7 @@ def main():
     p_test_url.add_argument("--url", help="IP o URL de la cámara")
     p_test_url.add_argument("--username", help="Usuario")
     p_test_url.add_argument("--password", help="Contraseña")
+    p_test_url.add_argument("--interface", type=int, choices=[0, 1], default=1, help="Tipo de interfaz: 1=Moderna (Quasar), 0=Clásica (defecto: 1)")
     p_test_url.add_argument("--visible", action="store_true", help="Mostrar el navegador en pantalla durante la prueba")
 
     # logs
@@ -228,6 +257,7 @@ def main():
     commands = {
         "init-db": cmd_init_db,
         "add": cmd_add_camera,
+        "set-interface": cmd_set_interface,
         "list": cmd_list_cameras,
         "delete": cmd_delete_camera,
         "toggle": cmd_toggle_camera,

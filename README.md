@@ -126,11 +126,11 @@ python cli.py init-db
 
 ### Probar una URL directamente (sin guardar en base de datos):
 ```bash
-# Cámara con interfaz moderna (Quasar)
-python cli.py test-url --url "http://fwcdnazas.mine.nu" --username "root" --visible
+# Cámara con interfaz moderna (Quasar - interface=1)
+python cli.py test-url --url "http://fwcdnazas.mine.nu" --username "root" --interface 1 --visible
 
-# Cámara con interfaz clásica (VIVOTEK tradicional)
-python cli.py test-url --url "http://fwcemento.mine.nu" --username "root" --visible
+# Cámara con interfaz clásica (VIVOTEK tradicional - interface=0)
+python cli.py test-url --url "http://fwcoyote.mine.nu" --username "root" --interface 0 --visible
 ```
 > **Nota:** El parámetro opcional `--visible` abre la ventana del navegador en pantalla para ver el flujo en tiempo real.
 
@@ -138,16 +138,25 @@ python cli.py test-url --url "http://fwcemento.mine.nu" --username "root" --visi
 ```bash
 python cli.py add
 ```
-*(Solicita interactivamente el nombre, URL/IP, usuario y contraseña).*
+*(Solicita interactivamente el nombre, URL/IP, usuario, contraseña y tipo de interfaz: `1`=Moderna, `0`=Clásica).*
 
 O mediante parámetros:
 ```bash
-python cli.py add --name "Cámara Cemento" --url "http://fwcemento.mine.nu" --username "root"
+python cli.py add --name "Cámara Cemento" --url "http://fwcemento.mine.nu" --username "root" --interface 1
 ```
 
-### Listar cámaras registradas:
+### Listar cámaras registradas y su tipo de interfaz:
 ```bash
 python cli.py list
+```
+
+### Cambiar tipo de interfaz de una cámara registrada:
+```bash
+# Cambiar cámara #4 a interfaz clásica (0)
+python cli.py set-interface 4 0
+
+# Cambiar cámara #1 a interfaz moderna (1)
+python cli.py set-interface 1 1
 ```
 
 ### Probar una cámara registrada por su ID:
@@ -157,8 +166,7 @@ python cli.py test 1 --visible
 
 ### Habilitar / Deshabilitar una cámara:
 ```bash
-python cli.py toggle 1 --disable
-python cli.py toggle 1 --enable
+python cli.py toggle 1
 ```
 
 ### Ver historial de chequeos recientes:

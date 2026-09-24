@@ -10,13 +10,13 @@ class CameraRepository:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO cameras (name, ip_or_url, username, password, vendor_type, enabled)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (camera.name, camera.ip_or_url, camera.username, camera.password, camera.vendor_type, 1 if camera.enabled else 0))
+            INSERT INTO cameras (name, ip_or_url, username, password, vendor_type, interface, enabled)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (camera.name, camera.ip_or_url, camera.username, camera.password, camera.vendor_type, camera.interface, 1 if camera.enabled else 0))
         camera_id = cursor.lastrowid
         conn.commit()
         conn.close()
-        logger.info("Cámara registrada con ID %s: %s (%s)", camera_id, camera.name, camera.ip_or_url)
+        logger.info("Cámara registrada con ID %s: %s (%s, interface=%s)", camera_id, camera.name, camera.ip_or_url, camera.interface)
         return camera_id
 
     @staticmethod
@@ -34,6 +34,7 @@ class CameraRepository:
                 username=row["username"],
                 password=row["password"],
                 vendor_type=row["vendor_type"],
+                interface=row["interface"] if "interface" in row.keys() and row["interface"] is not None else 1,
                 enabled=bool(row["enabled"]),
                 created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
                 updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
@@ -56,6 +57,7 @@ class CameraRepository:
                 username=row["username"],
                 password=row["password"],
                 vendor_type=row["vendor_type"],
+                interface=row["interface"] if "interface" in row.keys() and row["interface"] is not None else 1,
                 enabled=bool(row["enabled"]),
             )
             for row in rows
@@ -77,6 +79,7 @@ class CameraRepository:
             username=row["username"],
             password=row["password"],
             vendor_type=row["vendor_type"],
+            interface=row["interface"] if "interface" in row.keys() and row["interface"] is not None else 1,
             enabled=bool(row["enabled"]),
         )
 
@@ -95,6 +98,16 @@ class CameraRepository:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("UPDATE cameras SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (1 if enabled else 0, camera_id))
+        affected = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return affected
+
+    @staticmethod
+    def set_camera_interface(camera_id: int, interface: int) -> bool:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE cameras SET interface = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (interface, camera_id))
         affected = cursor.rowcount > 0
         conn.commit()
         conn.close()
