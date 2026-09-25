@@ -35,7 +35,7 @@ class CameraChecker:
             logger.info("[%s] Modo de interfaz: CLÁSICA (interface=0)", camera.name)
         else:
             interface_name = "QUASAR"
-            initial_url = target_url
+            initial_url = f"{target_url.rstrip('/')}/home.html"
             logger.info("[%s] Modo de interfaz: MODERNA / QUASAR (interface=1)", camera.name)
 
         try:
@@ -148,75 +148,75 @@ class CameraChecker:
     # MANEJO DE INTERFAZ 1: QUASAR (MODERNA)
     # =========================================================================
     def _handle_quasar_interface(self, page: Page, base_url: str, interval_minutes: int) -> List[RecordingItem]:
-        """Flujo para la interfaz moderna Quasar."""
-        # 1. Esperar activamente a que la página principal cargue algún elemento visible y no esté en blanco
-        logger.info("[Quasar] Verificando carga de la página principal (esperando elementos visibles antes de navegar)...")
-        max_wait_initial = 30
-        start_t = time.time()
-        page_rendered = False
-
-        while time.time() - start_t < max_wait_initial:
-            try:
-                # Comprobar si hay elementos renderizados en el DOM y visibles en pantalla
-                is_rendered = page.evaluate("""() => {
-                    const app = document.querySelector('#q-app');
-                    const hasAppChildren = app && app.children.length > 0;
-                    const header = document.querySelector('.q-header, header, .q-layout, .q-toolbar, .q-page-container');
-                    const bodyText = (document.body && document.body.innerText) ? document.body.innerText.trim() : '';
-                    return (hasAppChildren || header) && bodyText.length > 0;
-                }""")
-                if is_rendered:
-                    page_rendered = True
-                    logger.info("[Quasar] Página principal cargada correctamente con elementos visibles.")
-                    break
-            except Exception:
-                pass
-            logger.debug("[Quasar] Página aún en blanco o cargando componentes...")
-            time.sleep(1.0)
-
-        if not page_rendered:
-            logger.warning("[Quasar] La página principal sigue observándose en blanco tras %ss. Se intentará continuar con precaución.", max_wait_initial)
-        else:
-            time.sleep(2)
-
-        # 2. Navegación a la vista de archivos (#/file_general)
+        """Flujo para la interfaz moderna Quasar (/home.html#/file_general)."""
         target_file_url = f"{base_url.rstrip('/')}/home.html#/file_general"
-        if "file_general" not in page.url:
-            logger.info("[Quasar] Navegando a URL de archivos: %s", target_file_url)
-            try:
-                page.evaluate("() => { window.location.hash = '#/file_general'; }")
-                time.sleep(2)
-            except Exception:
-                pass
 
-            if "file_general" not in page.url:
-                try:
-                    page.goto(target_file_url, wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
-                    time.sleep(2)
-                except Exception as e:
-                    logger.debug("[Quasar] Aviso en goto: %s", e)
-
-        # Esperar máscara inicial si aparece
+        # 1. Esperar activamente a que la página principal cargue algún elemento visible
+        logger.info("[Quasar] Verificando carga de la página principal (esperando elementos visibles antes de navegar)...")
+        rendered = False
         try:
-            mask = page.locator(".q-loading, .connecting-mask").first
+            page.locator(".q-layout, .q-header, header, .q-drawer, .q-item, #q-app > div").first.wait_for(state="visible", timeout=20000)
+            rendered = True
+            logger.info("[Quasar] Página principal cargada correctamente con elementos visibles.")
+        except Exception:
+            logger.warning("[Quasar] La página principal no renderizó elementos tras el tiempo de espera. Forzando navegación a URL de archivos.")
+
+        time.sleep(1.5)
+
+        # 2. Función auxiliar para asegurar que estamos en la URL correcta de archivos
+        def _ensure_file_general_url():
+            if "file_general" not in page.url:
+                logger.info("[Quasar] Navegando a URL de archivos: %s", target_file_url)
+                try:
+                    page.evaluate("() => { window.location.hash = '#/file_general'; }")
+                    time.sleep(1.5)
+                except Exception:
+                    pass
+                if "file_general" not in page.url:
+                    try:
+                        page.goto(target_file_url, wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
+                        time.sleep(2)
+                    except Exception as e:
+                        logger.debug("[Quasar] Aviso en goto: %s", e)
+
+        _ensure_file_general_url()
+
+        # Esperar máscara o spinner inicial si aparece
+        try:
+            mask = page.locator(".q-loading, .connecting-mask, .q-spinner").first
             if mask.is_visible(timeout=2000):
                 mask.wait_for(state="hidden", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
         except Exception:
             pass
 
-        time.sleep(1.5)
+        # Esperar a que los subcomponentes de la vista de archivos se carguen
+        try:
+            page.locator(".q-field, button:has-text('Search'), .q-table, text=Time frame, text=Last").first.wait_for(state="visible", timeout=15000)
+        except Exception:
+            time.sleep(2)
 
-        # Asegurar hash #/file_general
-        if "file_general" not in page.url:
-            try:
-                page.evaluate("() => { window.location.hash = '#/file_general'; }")
-                time.sleep(2)
-            except Exception:
-                pass
-
-        # 1. Paso 1: Abrir el selector de marco de tiempo (Time frame)
+        # 3. Paso 1: Localizar y abrir selector Time frame (con refresco y reintento si es necesario)
         logger.info("[Quasar] Paso 1: Localizando y abriendo selector Time frame...")
-        time_frame_loc = page.locator(".q-field").filter(has_text="Time frame").first
+        time_frame_selector = ".q-field:has-text('Time frame'), .q-field:has-text('Last'), .q-select:has-text('Last'), .q-field:has-text('Custom'), button:has-text('Last 24 hours')"
+        time_frame_loc = page.locator(time_frame_selector).first
+
+        if not time_frame_loc.is_visible(timeout=4000):
+            # Verificar si la URL se reseteó o la interfaz se quedó congelada
+            logger.warning("[Quasar] Selector Time frame no visible inmediatamente. Verificando URL y refrescando...")
+            _ensure_file_general_url()
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
+                time.sleep(3)
+                _ensure_file_general_url()
+                time.sleep(2)
+            except Exception as ex:
+                logger.debug("[Quasar] Aviso al refrescar: %s", ex)
+
+        # Antes de lanzar timeout, comprobar que la URL esté en /home.html#/file_general
+        _ensure_file_general_url()
+        time_frame_loc = page.locator(time_frame_selector).first
+        if not time_frame_loc.is_visible(timeout=3000):
+            time_frame_loc = page.locator(".q-field").filter(has_text="Time frame").first
         if not time_frame_loc.is_visible(timeout=2000):
             time_frame_loc = page.locator(".q-field").filter(has_text="Last").first
         if not time_frame_loc.is_visible(timeout=2000):
@@ -227,7 +227,7 @@ class CameraChecker:
         logger.info("[Quasar] Selector Time frame clickeado.")
         time.sleep(1)
 
-        # 2. Paso 2: Seleccionar 'Custom time interval' del menú desplegado
+        # 4. Paso 2: Seleccionar 'Custom time interval' del menú desplegado
         logger.info("[Quasar] Paso 2: Seleccionando 'Custom time interval'...")
         custom_opt = page.locator(".q-menu .q-item, .q-item").filter(has_text="Custom time interval").first
         if not custom_opt.is_visible(timeout=3000):
@@ -238,7 +238,7 @@ class CameraChecker:
         logger.info("[Quasar] 'Custom time interval' clickeado.")
         time.sleep(1.5)
 
-        # 3. Paso 3: Configurar hora en el modal 'Date & Time'
+        # 5. Paso 3: Configurar hora en el modal 'Date & Time'
         logger.info("[Quasar] Paso 3: Esperando modal Date & Time para configurar %s minutos...", interval_minutes)
         modal = page.locator(".q-dialog").first
         modal.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
@@ -287,7 +287,7 @@ class CameraChecker:
         except Exception:
             time.sleep(1.5)
 
-        # 4. Paso 4: Clic en el botón Search en la vista de archivos
+        # 6. Paso 4: Clic en el botón Search en la vista de archivos
         logger.info("[Quasar] Paso 4: Presionando botón Search...")
         search_btn = page.locator(".q-page button, button, .q-btn").filter(has_text="Search").first
         search_btn.wait_for(state="visible", timeout=settings.ELEMENT_WAIT_TIMEOUT_MS)
@@ -376,12 +376,17 @@ class CameraChecker:
     def _handle_classic_interface(self, page: Page, base_url: str, interval_minutes: int) -> List[RecordingItem]:
         """Flujo para la interfaz clásica VIVOTEK (/setup/localstorage/storage_searching.html)."""
         search_page_url = f"{base_url.rstrip('/')}/setup/localstorage/storage_searching.html"
-        if "storage_searching" not in page.url:
-            logger.info("[Clásica] Navegando a página de búsqueda: %s", search_page_url)
-            try:
-                page.goto(search_page_url, wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
-            except Exception as e:
-                logger.warning("[Clásica] Aviso al cargar URL directa: %s", e)
+
+        # 1. Función para asegurar que estamos en la URL de búsqueda clásica
+        def _ensure_classic_search_url():
+            if "storage_searching" not in page.url:
+                logger.info("[Clásica] Navegando a página de búsqueda: %s", search_page_url)
+                try:
+                    page.goto(search_page_url, wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
+                except Exception as e:
+                    logger.warning("[Clásica] Aviso al cargar URL directa: %s", e)
+
+        _ensure_classic_search_url()
 
         # Esperar a que los componentes AngularJS/DOM terminen de compilar e inicializar parámetros
         for _ in range(12):
@@ -395,11 +400,20 @@ class CameraChecker:
 
         try:
             input_mins = page.locator(VIVOTEK_CLASSIC_SELECTORS["input_minutes"]).first
-            input_mins.wait_for(state="visible", timeout=15000)
+            input_mins.wait_for(state="visible", timeout=12000)
             time.sleep(1)
         except Exception as e:
-            logger.warning("[Clásica] Esperando inicialización de componentes: %s", e)
-            time.sleep(2)
+            logger.warning("[Clásica] Elementos tardaron en responder. Refrescando y reintentando...")
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=settings.PAGE_LOAD_TIMEOUT_MS)
+                time.sleep(3)
+                _ensure_classic_search_url()
+                time.sleep(2)
+            except Exception:
+                pass
+
+        # Antes de proceder, asegurar que la URL sigue siendo storage_searching.html
+        _ensure_classic_search_url()
 
         # 2. Configurar intervalo de minutos y ejecutar búsqueda (mediante AngularJS scope o interacción DOM)
         logger.info("[Clásica] Configurando búsqueda de los últimos %s minutos...", interval_minutes)
