@@ -198,12 +198,22 @@ def cmd_test_email(args):
     else:
         print("Fallo al enviar correo de prueba. Revisa la configuración en .env y los logs.")
 
+def cmd_serve(args):
+    from src.api.server import start_server
+    start_server(host=args.host, port=args.port, reload=args.reload)
+
 def main():
     parser = argparse.ArgumentParser(description="CLI de Gestión y Verificación de Cámaras de Seguridad")
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponibles")
 
     # init-db
     subparsers.add_parser("init-db", help="Inicializar la base de datos SQLite")
+
+    # serve
+    p_serve = subparsers.add_parser("serve", help="Iniciar la API y el Dashboard Web de Monitoreo")
+    p_serve.add_argument("--host", default="0.0.0.0", help="Dirección IP de escucha (defecto: 0.0.0.0)")
+    p_serve.add_argument("--port", type=int, default=8000, help="Puerto TCP del servidor (defecto: 8000)")
+    p_serve.add_argument("--reload", action="store_true", help="Habilitar auto-recarga por cambios en código")
 
     # add
     p_add = subparsers.add_parser("add", help="Agregar una nueva cámara")
@@ -256,6 +266,7 @@ def main():
 
     commands = {
         "init-db": cmd_init_db,
+        "serve": cmd_serve,
         "add": cmd_add_camera,
         "set-interface": cmd_set_interface,
         "list": cmd_list_cameras,

@@ -1,7 +1,11 @@
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Optional
+from config.config import settings
 from src.database.connection import get_db_connection
-from src.database.models import Camera, CheckLog, AlertHistory, CameraStatus
+from src.database.models import (
+    Camera, CheckLog, AlertHistory, CameraStatus, CameraWithStatus, SystemSummary
+)
 from src.utils.logger import logger
 
 class CameraRepository:
@@ -62,6 +66,97 @@ class CameraRepository:
             )
             for row in rows
         ]
+
+    @staticmethod
+    def get_cameras_with_latest_status() -> List[CameraWithStatus]:
+        """Obtiene todas las cámaras combinadas con su último log de chequeo."""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            WITH ranked_logs AS (
+                SELECT *,
+                       ROW_NUMBER() OVER (PARTITION BY camera_id ORDER BY checked_at DESC, id DESC) as rn
+                FROM check_logs
+            )
+            SELECT 
+                c.id, c.name, c.ip_or_url, c.vendor_type, c.interface, c.enabled, c.created_at, c.updated_at,
+                l.status, l.recordings_count, l.latest_recording_time, l.details, l.screenshot_path, l.checked_at as last_checked_at
+            FROM cameras c
+            LEFT JOIN ranked_logs l ON c.id = l.camera_id AND l.rn = 1
+            ORDER BY c.id ASC
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        result = []
+        for row in rows:
+            raw_screenshot = row["screenshot_path"]
+            has_screenshot = False
+            screenshot_url = None
+            if raw_screenshot:
+                p = Path(raw_screenshot)
+                if p.exists() or (settings.SCREENSHOT_DIR / p.name).exists():
+                    has_screenshot = True
+                    screenshot_url = f"/api/screenshots/{p.name}"
+
+            status_val = None
+            if row["status"]:
+                try:
+                    status_val = CameraStatus(row["status"])
+                except ValueError:
+                    status_val = CameraStatus.ERROR
+
+            result.append(
+                CameraWithStatus(
+                    id=row["id"],
+                    name=row["name"],
+                    ip_or_url=row["ip_or_url"],
+                    vendor_type=row["vendor_type"] or "vivotek",
+                    interface=row["interface"] if "interface" in row.keys() and row["interface"] is not None else 1,
+                    enabled=bool(row["enabled"]),
+                    created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+                    updated_at=datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None,
+                    status=status_val,
+                    last_checked_at=datetime.fromisoformat(row["last_checked_at"]) if row["last_checked_at"] else None,
+                    recordings_count=row["recordings_count"] or 0,
+                    latest_recording_time=row["latest_recording_time"],
+                    details=row["details"],
+                    screenshot_path=raw_screenshot,
+                    has_screenshot=has_screenshot,
+                    screenshot_url=screenshot_url
+                )
+            )
+        return result
+
+    @staticmethod
+    def get_system_summary() -> SystemSummary:
+        """Calcula el resumen de operatividad global de las cámaras."""
+        cameras = CameraRepository.get_cameras_with_latest_status()
+        total = len(cameras)
+        active = sum(1 for c in cameras if c.enabled)
+        paused = total - active
+        ok = sum(1 for c in cameras if c.enabled and c.status == CameraStatus.OK)
+        error = sum(1 for c in cameras if c.enabled and c.status in (
+            CameraStatus.OFFLINE, CameraStatus.AUTH_FAILED, CameraStatus.NO_RECORDINGS, CameraStatus.ERROR
+        ))
+        untested = sum(1 for c in cameras if c.enabled and c.status is None)
+        
+        health_pct = round((ok / active * 100), 1) if active > 0 else 100.0
+        
+        last_scan_times = [c.last_checked_at for c in cameras if c.last_checked_at is not None]
+        last_scan_at = max(last_scan_times) if last_scan_times else None
+
+        return SystemSummary(
+            total_cameras=total,
+            active_cameras=active,
+            paused_cameras=paused,
+            ok_cameras=ok,
+            error_cameras=error,
+            untested_cameras=untested,
+            health_percentage=health_pct,
+            last_scan_at=last_scan_at,
+            generated_at=datetime.now()
+        )
 
     @staticmethod
     def get_camera_by_id(camera_id: int) -> Optional[Camera]:

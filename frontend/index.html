@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SentinelCam • Monitor de Grabaciones de Cámaras de Seguridad</title>
+  <meta name="description" content="Dashboard en tiempo real para el estado y verificación de grabaciones de cámaras de seguridad">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2310b981'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z'/></svg>">
+</head>
+<body>
+  <!-- Background Glow & Grid Ornaments -->
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="grid-overlay"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="dashboard-header">
+      <div class="header-brand">
+        <div class="brand-icon-wrapper">
+          <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
+            <circle cx="12" cy="13" r="3"/>
+          </svg>
+          <span class="live-pulse"></span>
+        </div>
+        <div>
+          <div class="brand-title-group">
+            <h1 class="brand-title">SentinelCam</h1>
+            <span class="version-tag">PRO MONITOR</span>
+          </div>
+          <p class="brand-subtitle">Panel de Verificación Diaria de Grabaciones (24h)</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Countdown & Refresh Widget -->
+        <div class="refresh-widget" id="refreshWidget">
+          <div class="timer-badge">
+            <svg class="timer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+            <span id="countdownText">30s</span>
+          </div>
+          <button id="btnManualRefresh" class="btn-refresh" title="Actualizar datos ahora" aria-label="Actualizar datos">
+            <svg class="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+            </svg>
+            <span>Actualizar</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Global System Metrics Bar -->
+    <section class="metrics-section" aria-label="Métricas de Estado General">
+      <div class="metric-card metric-total">
+        <div class="metric-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+            <line x1="6" y1="6" x2="6.01" y2="6"/>
+            <line x1="6" y1="18" x2="6.01" y2="18"/>
+          </svg>
+        </div>
+        <div class="metric-info">
+          <span class="metric-label">Total Cámaras</span>
+          <span class="metric-value" id="statTotal">-</span>
+        </div>
+      </div>
+
+      <div class="metric-card metric-ok">
+        <div class="metric-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        </div>
+        <div class="metric-info">
+          <span class="metric-label">Grabando OK</span>
+          <span class="metric-value" id="statOk">-</span>
+        </div>
+      </div>
+
+      <div class="metric-card metric-error">
+        <div class="metric-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <div class="metric-info">
+          <span class="metric-label">Con Incidencias</span>
+          <span class="metric-value" id="statError">-</span>
+        </div>
+      </div>
+
+      <div class="metric-card metric-health">
+        <div class="metric-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 7.65l.77.78L12 20.66l7.65-7.65.77-.78a5.4 5.4 0 0 0 0-7.65z"/>
+          </svg>
+        </div>
+        <div class="metric-info">
+          <div class="health-header">
+            <span class="metric-label">Salud del Sistema</span>
+            <span class="health-pct" id="statHealthPct">-%</span>
+          </div>
+          <div class="health-bar-bg">
+            <div class="health-bar-fill" id="healthBarFill" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Controls Bar (Search, Filters, Status Pills) -->
+    <div class="controls-bar">
+      <!-- Search Box -->
+      <div class="search-box">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" id="searchInput" placeholder="Buscar por nombre, IP o diagnóstico..." autocomplete="off">
+        <button id="btnSearchClear" class="btn-search-clear" style="display: none;" title="Limpiar búsqueda">&times;</button>
+      </div>
+
+      <!-- Filter Buttons -->
+      <div class="filter-group" role="tablist" aria-label="Filtrar cámaras">
+        <button class="filter-btn active" data-filter="ALL" role="tab" aria-selected="true">
+          Todas <span class="badge-count" id="countFilterAll">0</span>
+        </button>
+        <button class="filter-btn filter-btn-error" data-filter="PROBLEMS" role="tab" aria-selected="false">
+          <span class="dot-indicator dot-error"></span> Con Error <span class="badge-count" id="countFilterError">0</span>
+        </button>
+        <button class="filter-btn filter-btn-ok" data-filter="OK" role="tab" aria-selected="false">
+          <span class="dot-indicator dot-ok"></span> Operativas <span class="badge-count" id="countFilterOk">0</span>
+        </button>
+        <button class="filter-btn" data-filter="PAUSED" role="tab" aria-selected="false">
+          Pausadas <span class="badge-count" id="countFilterPaused">0</span>
+        </button>
+      </div>
+
+      <!-- Last Check Timestamp Indicator -->
+      <div class="last-sync-tag">
+        <span class="sync-dot"></span>
+        <span>Último ciclo de chequeo:</span>
+        <strong id="lastScanTime">Cargando...</strong>
+      </div>
+    </div>
+
+    <!-- Main Camera Grid -->
+    <main class="cameras-container" id="camerasContainer" aria-live="polite">
+      <!-- Loading Skeleton / Shimmer -->
+      <div class="loading-state" id="loadingState">
+        <div class="spinner"></div>
+        <p>Sincronizando estado de las cámaras...</p>
+      </div>
+    </main>
+
+    <!-- Empty State -->
+    <div class="empty-state" id="emptyState" style="display: none;">
+      <div class="empty-icon-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+        </svg>
+      </div>
+      <h3>No se encontraron cámaras</h3>
+      <p id="emptyStateMessage">No hay cámaras que coincidan con los filtros aplicados.</p>
+    </div>
+  </div>
+
+  <!-- Screenshot Evidence Dialog (Modern Modal with Light-Dismiss) -->
+  <dialog id="screenshotDialog" closedby="any" class="evidence-dialog" aria-labelledby="dialogCameraTitle">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <div class="dialog-header-info">
+          <div class="dialog-badge" id="dialogStatusBadge">ESTADO</div>
+          <h2 id="dialogCameraTitle" class="dialog-title">Cámara #00 - Nombre</h2>
+          <span class="dialog-ip" id="dialogCameraIp">192.168.1.100</span>
+        </div>
+        <form method="dialog">
+          <button type="submit" class="btn-close-dialog" aria-label="Cerrar ventana">&times;</button>
+        </form>
+      </div>
+
+      <div class="dialog-body">
+        <div class="dialog-image-wrapper" id="dialogImageWrapper">
+          <div class="img-loading-spinner" id="dialogImgSpinner"></div>
+          <img id="dialogImage" src="" alt="Captura de evidencia de la cámara" loading="lazy">
+        </div>
+        <div class="dialog-meta-panel">
+          <div class="meta-row">
+            <span class="meta-label">Diagnóstico registrado:</span>
+            <span class="meta-value" id="dialogDetails">-</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Fecha de verificación:</span>
+            <span class="meta-value font-mono" id="dialogTimestamp">-</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

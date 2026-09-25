@@ -48,5 +48,29 @@ class TestCameraCheckerComponents(unittest.TestCase):
         self.assertIn("Camara Acceso Principal", html)
         self.assertIn("Tiempo de espera agotado", plain)
 
+    def test_api_endpoints(self):
+        from fastapi.testclient import TestClient
+        from src.api.app import app
+
+        client = TestClient(app)
+        
+        # Test summary endpoint
+        res_sum = client.get("/api/summary")
+        self.assertEqual(res_sum.status_code, 200)
+        data_sum = res_sum.json()
+        self.assertIn("total_cameras", data_sum)
+        self.assertIn("health_percentage", data_sum)
+
+        # Test cameras endpoint
+        res_cams = client.get("/api/cameras")
+        self.assertEqual(res_cams.status_code, 200)
+        self.assertIsInstance(res_cams.json(), list)
+
+        # Test static frontend index
+        res_index = client.get("/")
+        self.assertEqual(res_index.status_code, 200)
+        self.assertIn("SentinelCam", res_index.text)
+
 if __name__ == "__main__":
     unittest.main()
+

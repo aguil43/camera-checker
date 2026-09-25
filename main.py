@@ -85,8 +85,16 @@ def main():
     parser.add_argument("--interval", type=int, default=settings.CHECK_INTERVAL_HOURS, help=f"Intervalo de horas entre chequeos en modo daemon (defecto: {settings.CHECK_INTERVAL_HOURS})")
     parser.add_argument("--visible", action="store_true", help="Abrir el navegador visible en lugar de headless")
     parser.add_argument("--force-alerts", action="store_true", help="Ignorar cooldown de alertas y enviar siempre correo ante incidentes")
+    parser.add_argument("--serve", action="store_true", help="Iniciar el servidor de API y Dashboard Web de monitoreo")
+    parser.add_argument("--host", default="0.0.0.0", help="Dirección IP de escucha para el servidor web (defecto: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=8000, help="Puerto TCP para el servidor web (defecto: 8000)")
 
     args = parser.parse_args()
+
+    if args.serve:
+        from src.api.server import start_server
+        start_server(host=args.host, port=args.port)
+        return
 
     headless = not args.visible
 

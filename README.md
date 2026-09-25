@@ -195,6 +195,29 @@ python main.py
 python main.py --daemon --interval 24
 ```
 
+## 🌐 Dashboard Web y API REST de Monitoreo
+
+El sistema incluye una **API REST (FastAPI)** y un **Dashboard Web en tiempo real** de alta estética (Dark UI, Glassmorphism, animaciones y diseño responsivo) para visualizar instantáneamente el estado operativo de todas las cámaras, conteo de grabaciones en las últimas 24h, porcentaje de salud global y evidencia fotográfica de incidentes.
+
+### Iniciar el Dashboard y la API:
+```bash
+# Vía CLI
+python cli.py serve --port 8000
+
+# O vía main.py
+python main.py --serve --port 8000
+```
+Una vez iniciado, abre tu navegador en: **`http://localhost:8000`**
+
+### Endpoints de la API REST:
+* **`GET /api/summary`**: Resumen general de métricas (total de cámaras, operativas, con error, pausadas, % de salud global y fecha del último escaneo).
+* **`GET /api/cameras`**: Lista completa de cámaras con su último estado operativo (`OK`, `OFFLINE`, `AUTH_FAILED`, `NO_RECORDINGS`, `ERROR`), conteo de grabaciones y diagnóstico.
+  * *Query params opcionales:* `?status=OK`, `?status=OFFLINE`, `?search=NombreOIp`, `?enabled=true`.
+* **`GET /api/cameras/{id}`**: Detalle específico del estado de una cámara por su ID.
+* **`GET /api/logs`**: Historial de auditoría de los chequeos (`?limit=50`, `?camera_id=1`).
+* **`GET /api/screenshots/{filename}`**: Descarga y visualización de capturas de pantalla tomadas durante los chequeos como evidencia de fallo.
+* **`GET /docs`**: Documentación interactiva Swagger / OpenAPI generada automáticamente.
+
 ---
 
 ## 🧪 Ejecución de Pruebas Unitarias
@@ -203,3 +226,4 @@ Para ejecutar el conjunto de pruebas automáticas del sistema:
 ```bash
 python -m unittest tests/test_components.py
 ```
+

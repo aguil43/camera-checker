@@ -49,3 +49,34 @@ class AlertHistory(BaseModel):
     recipient: str
     details: str
     sent_at: Optional[datetime] = None
+
+class CameraWithStatus(BaseModel):
+    id: int
+    name: str
+    ip_or_url: str
+    vendor_type: str = "vivotek"
+    interface: int = 1
+    enabled: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    # Latest log status
+    status: Optional[CameraStatus] = None
+    last_checked_at: Optional[datetime] = None
+    recordings_count: int = 0
+    latest_recording_time: Optional[str] = None
+    details: Optional[str] = None
+    screenshot_path: Optional[str] = None
+    has_screenshot: bool = False
+    screenshot_url: Optional[str] = None
+
+class SystemSummary(BaseModel):
+    total_cameras: int
+    active_cameras: int
+    paused_cameras: int
+    ok_cameras: int
+    error_cameras: int
+    untested_cameras: int
+    health_percentage: float
+    last_scan_at: Optional[datetime] = None
+    generated_at: datetime = Field(default_factory=datetime.now)
+
